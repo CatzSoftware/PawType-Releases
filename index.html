@@ -229,6 +229,11 @@
     .block { padding: 72px 0; }
     .block-hero, .block-end { padding: 0; }
   }
+  /* 手機與矮視窗：一塊常比一屏高，只在接近開頭時對齊，捲到中間照常停住 */
+  @media (max-width: 900px), (max-height: 639px) {
+    html { scroll-snap-type: y proximity; }
+    .block { scroll-snap-align: start; }
+  }
   @media (max-width: 480px) {
     .wrap { padding: 0 16px; }
     .stage-body { padding: 20px 16px 24px; }
