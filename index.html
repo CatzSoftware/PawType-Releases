@@ -187,12 +187,10 @@
 
   footer { padding: 32px 0 48px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; }
 
-  /* ── 一屏一塊：只在夠寬也夠高的視窗吸附，手機與矮視窗照常捲動 ── */
+  /* ── 一屏一塊：夠寬也夠高的視窗每塊剛好一屏，翻塊由下方程式處理；手機與矮視窗照常捲動 ── */
   @media (min-width: 901px) and (min-height: 640px) {
-    html { scroll-snap-type: y mandatory; }
     .block {
       min-height: 100vh; min-height: 100dvh;
-      scroll-snap-align: start; scroll-snap-stop: always;
       display: flex; flex-direction: column; justify-content: center;
       padding: 48px 0;
     }
@@ -228,11 +226,6 @@
     .trust > div + div { border-top: 1px solid var(--line); }
     .block { padding: 72px 0; }
     .block-hero, .block-end { padding: 0; }
-  }
-  /* 手機與矮視窗：一塊常比一屏高，只在接近開頭時對齊，捲到中間照常停住 */
-  @media (max-width: 900px), (max-height: 639px) {
-    html { scroll-snap-type: y proximity; }
-    .block { scroll-snap-align: start; }
   }
   @media (max-width: 480px) {
     .wrap { padding: 0 16px; }
@@ -467,6 +460,75 @@
       }
     }
     loop();
+  })();
+
+  // 電腦一屏一塊：滾輪或觸控板滑一次、翻頁鍵按一次，就平滑捲到相鄰的那一塊
+  (function () {
+    var blocks = Array.prototype.slice.call(document.querySelectorAll('.block'));
+    var desktop = window.matchMedia('(min-width: 901px) and (min-height: 640px)');
+    var reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
+    var busy = false;   // 正在捲往目標塊
+    var spent = false;  // 這一次手勢已經翻過一塊
+    var lastWheel = -Infinity;
+
+    function topOf(el) { return el.getBoundingClientRect().top + window.scrollY; }
+
+    // 回傳要捲去的位置；目前這塊比一屏高、還沒看完時回傳 null，交給瀏覽器照常捲
+    function targetFor(dir) {
+      var mid = window.scrollY + window.innerHeight / 2;
+      var i = 0;
+      blocks.forEach(function (b, k) { if (topOf(b) <= mid) i = k; });
+      var rect = blocks[i].getBoundingClientRect();
+      if (dir > 0 && rect.bottom > window.innerHeight + 2) return null;
+      if (dir < 0 && rect.top < -2) return null;
+      var next = blocks[i + dir];
+      return next ? topOf(next) : null;
+    }
+
+    function go(top) {
+      busy = true;
+      window.scrollTo({ top: top, behavior: reduce.matches ? 'auto' : 'smooth' });
+      var done = function () { busy = false; window.removeEventListener('scrollend', done); };
+      window.addEventListener('scrollend', done);
+      setTimeout(done, 1000);  // 不支援 scrollend 的瀏覽器
+    }
+
+    // 觸控板放開後還會送出一長串慣性事件，滾動量一路變小；
+    // 停頓夠久、換方向、或滾動量突然變大，才算使用者又出手了一次
+    var lastDelta = 0;
+    function startsNewGesture(gapMs, deltaY) {
+      var flipped = deltaY * lastDelta < 0;
+      var surged = Math.abs(deltaY) > Math.abs(lastDelta) * 1.5 + 4;
+      lastDelta = deltaY;
+      return gapMs > 200 || flipped || surged;
+    }
+
+    window.addEventListener('wheel', function (e) {
+      if (!desktop.matches || e.ctrlKey || Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+      var gap = e.timeStamp - lastWheel;
+      lastWheel = e.timeStamp;
+      // 捲動途中觸控板起手的加速段也會判成新手勢，只在停穩後才重新開放翻頁
+      if (startsNewGesture(gap, e.deltaY) && !busy) spent = false;
+      var dir = e.deltaY > 0 ? 1 : -1;
+      if (busy || spent) { e.preventDefault(); return; }
+      var top = targetFor(dir);
+      if (top === null) return;
+      e.preventDefault();
+      spent = true;
+      go(top);
+    }, { passive: false });
+
+    var keys = { PageDown: 1, PageUp: -1, ArrowDown: 1, ArrowUp: -1, ' ': 1 };
+    window.addEventListener('keydown', function (e) {
+      if (!desktop.matches || !(e.key in keys) || e.altKey || e.ctrlKey || e.metaKey) return;
+      if (e.target.closest('input, textarea, select, button, [contenteditable]')) return;
+      var dir = e.key === ' ' && e.shiftKey ? -1 : keys[e.key];
+      if (busy) { e.preventDefault(); return; }
+      var top = targetFor(dir);
+      if (top === null) return;
+      e.preventDefault();
+      go(top);
+    });
   })();
 </script>
 </body>
